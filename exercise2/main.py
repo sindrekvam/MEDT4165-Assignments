@@ -47,8 +47,6 @@ if __name__ == "__main__":
     bw = 0.3
     period = 10e-6
 
-    fig, ax = plt.subplots(2, 1, tight_layout=True)
-
     # Gaussian wave
     x, gws = atp.gaussian_weighted_sinusoid(period, f_0, bw, f_s)
     f, fft_gws = get_spectrum(gws)
@@ -58,16 +56,21 @@ if __name__ == "__main__":
     square = np.pad(y, pad_width=(gws.shape[0] - y.shape[0]) // 2, mode="constant")
     _, fft_square = get_spectrum(square)
 
+    # Plotting
+    fig, ax = plt.subplots(2, 1, tight_layout=True)
+
     ax[0].plot(x * 1e6, gws, label="Gaussian Weighted Sinusoid")
     ax[0].plot(x * 1e6, square, label="Square Wave", alpha=0.7, color="C3")
     ax[1].plot(f, fft_gws, label="Gaussian Weighted Sinusoid")
     ax[1].plot(f, fft_square, label="Square Wave", alpha=0.7, color="C3")
 
     ax[0].set_xlabel("Time [us]")
+    ax[0].set_ylabel("Amplitude")
     ax[1].set_xlabel("Frequency [Hz]")
+    ax[1].set_ylabel("Relative amplitude")
 
     for a in ax:
         a.legend()
         a.grid()
 
-    plt.show()
+    plt.savefig("arbitrary_transmit_pulser.png", dpi=200)
