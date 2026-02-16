@@ -117,3 +117,42 @@ if __name__ == "__main__":
         a.grid()
 
     plt.savefig("arbitrary_transmit_pulser.png", dpi=300)
+
+    # Transducer impulse response
+    f_xd = 2.5e6
+    bw_xd = 0.4
+    x_xd, gws_xd = atp.gaussian_weighted_sinusoid(period, f_xd, bw_xd, f_s)
+    _, fft_gws_xd = get_spectrum(gws_xd, f_s=f_s)
+
+    # Plotting
+    fig, ax = plt.subplots(2, 1, tight_layout=True)
+
+    ax[0].plot(x * 1e6, gws, label=f"Transmitted signal $f_s={f_0 / 1e6:.1f}$ MHz")
+    ax[0].plot(
+        x * 1e6,
+        gws_xd,
+        label=f"Transducer impulse response $f_s={f_xd / 1e6:.1f}$ MHz",
+        alpha=0.7,
+        color="C3",
+    )
+    ax[1].plot(f * 1e-6, fft_gws, label="Transmitted spectra")
+    ax[1].plot(
+        f * 1e-6,
+        fft_gws_xd,
+        label="Transducer Transfer Function",
+        alpha=0.7,
+        color="C3",
+    )
+
+    ax[0].set_xlabel("Time [us]")
+    ax[0].set_ylabel("Amplitude")
+    ax[1].set_xlabel("Frequency [MHz]")
+    ax[1].set_ylabel("Amplitude [dB]")
+    ax[1].set_ylim([-45, 5])
+    ax[1].set_xlim([-15, 15])
+
+    for a in ax:
+        a.legend()
+        a.grid()
+
+    plt.savefig("transducer_impulse_response.png", dpi=300)
