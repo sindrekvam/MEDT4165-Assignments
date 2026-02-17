@@ -7,6 +7,40 @@ import scipy as scp
 logger = logging.getLogger(__name__)
 
 
+def plot(
+    fig: plt.Figure,
+    ax: plt.Axes,
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    grid: bool = True,
+    legend: bool = True,
+    **kwargs,
+) -> tuple[plt.Figure, plt.Axes]:
+    """"""
+
+    print(kwargs)
+
+    ax.plot(x, y, **kwargs.get("plot", {}))
+
+    if kwargs.get("xlabel", None) is not None:
+        ax.set_xlabel(kwargs["xlabel"])
+    if kwargs.get("ylabel", None) is not None:
+        ax.set_ylabel(kwargs["ylabel"])
+
+    if kwargs.get("xlim", None) is not None:
+        ax.set_xlim(kwargs["xlim"])
+    if kwargs.get("ylim", None) is not None:
+        ax.set_ylim(kwargs["ylim"])
+
+    if grid:
+        ax.grid()
+    if legend:
+        ax.legend()
+
+    return fig, ax
+
+
 def get_spectrum(data: np.ndarray, NFFT: int = 2048, f_s: float = 1.0):
     fft = np.fft.fftshift(np.fft.fft(data, NFFT))
     spectrum = 20 * np.log10(abs(fft))
@@ -100,26 +134,34 @@ if __name__ == "__main__":
     # Plotting
     fig, ax = plt.subplots(2, 1, tight_layout=True)
 
-    ax[0].plot(x * 1e6, gws, label="Gaussian Weighted Sinusoid")
-    ax[0].plot(x * 1e6, square, label="Square Wave", alpha=0.7, color="C3")
-    ax[1].plot(f * 1e-6, fft_gws, label="Gaussian Weighted Sinusoid")
-    ax[1].plot(f * 1e-6, fft_square, label="Square Wave", alpha=0.7, color="C3")
+    plot(
+        fig,
+        ax[0],
+        x * 1e6,
+        gws,
+        plot={"label": "Gaussian Weighted Sinusoid"},
+        xlabel="Time [us]",
+        ylabel="Amplitude",
+    )
+    plot(fig, ax[0], x * 1e6, square, plot={"label": "Square wave", "alpha": 0.7})
 
-    ax[0].set_xlabel("Time [us]")
-    ax[0].set_ylabel("Amplitude")
-    ax[1].set_xlabel("Frequency [MHz]")
-    ax[1].set_ylabel("Amplitude [dB]")
-    ax[1].set_ylim([-45, 5])
-    ax[1].set_xlim([-15, 15])
-
-    for a in ax:
-        a.legend()
-        a.grid()
+    plot(
+        fig,
+        ax[1],
+        f * 1e-6,
+        fft_gws,
+        plot={"label": "Gaussian Weighted Sinusoid"},
+        xlabel="Frequency [MHz]",
+        ylabel="Amplitude [dB]",
+        xlim=[-15, 15],
+        ylim=[-45, 5],
+    )
+    plot(fig, ax[1], f * 1e-6, fft_square, plot={"label": "Square Wave", "alpha": 0.7})
 
     plt.savefig("arbitrary_transmit_pulser.png", dpi=300)
 
     # Transducer impulse response
-    f_xd = 2.5e6
+    f_xd = 4.0e6
     bw_xd = 0.4
     x_xd, gws_xd = atp.gaussian_weighted_sinusoid(period, f_xd, bw_xd, f_s)
     _, fft_gws_xd = get_spectrum(gws_xd, f_s=f_s)
@@ -127,11 +169,11 @@ if __name__ == "__main__":
     # Plotting
     fig, ax = plt.subplots(2, 1, tight_layout=True)
 
-    ax[0].plot(x * 1e6, gws, label=f"Transmitted signal $f_s={f_0 / 1e6:.1f}$ MHz")
+    ax[0].plot(x * 1e6, gws, label=f"Transmitted signal $f_0={f_0 / 1e6:.1f}$ MHz")
     ax[0].plot(
         x * 1e6,
         gws_xd,
-        label=f"Transducer impulse response $f_s={f_xd / 1e6:.1f}$ MHz",
+        label=f"Transducer impulse response $f_0={f_xd / 1e6:.1f}$ MHz",
         alpha=0.7,
         color="C3",
     )
@@ -156,3 +198,96 @@ if __name__ == "__main__":
         a.grid()
 
     plt.savefig("transducer_impulse_response.png", dpi=300)
+
+    # Filtered tx pulse
+    filtered_gws_pulse = np.convolve(gws, gws_xd, "same")
+    filtered_gws_pulse /= np.max(filtered_gws_pulse)
+    filtered_square_pulse = np.convolve(square, gws_xd, "same")
+    filtered_square_pulse /= np.max(filtered_square_pulse)
+
+    fig, ax = plt.subplots(2, 2, tight_layout=True, figsize=(12, 8))
+
+    plot(
+        fig,
+        ax[0, 0],
+        x * 1e6,
+        gws,
+        plot={"label": f"Gaussian weighted sinusoid $f_0={f_0 / 1e6:.1f}$ MHz"},
+        xlabel="Time [us]",
+        ylabel="Amplitude",
+    )
+    plot(
+        fig,
+        ax[0, 0],
+        x * 1e6,
+        filtered_gws_pulse,
+        plot={
+            "label": f"Filtered transmitted gaussian $f_0={f_xd / 1e6:.1f}$ MHz",
+            "alpha": 0.7,
+        },
+    )
+
+    plot(
+        fig,
+        ax[0, 1],
+        x * 1e6,
+        square,
+        plot={"label": f"Transmitted signal $f_0={f_0 / 1e6:.1f}$ MHz"},
+        xlabel="Time [us]",
+        ylabel="Amplitude",
+    )
+    plot(
+        fig,
+        ax[0, 1],
+        x * 1e6,
+        filtered_square_pulse,
+        plot={
+            "label": f"Filtered transmitted square $f_0={f_xd / 1e6:.1f}$ MHz",
+            "alpha": 0.7,
+        },
+    )
+
+    f_filtered_gws, fft_filtered_gws = get_spectrum(filtered_gws_pulse, f_s=f_s)
+    f_filtered_square, fft_filtered_square = get_spectrum(
+        filtered_square_pulse, f_s=f_s
+    )
+
+    plot(
+        fig,
+        ax[1, 0],
+        f * 1e-6,
+        fft_gws,
+        plot={"label": "Gaussian Weighted Sinusoid"},
+        xlabel="Frequency [MHz]",
+        ylabel="Amplitude [dB]",
+        xlim=[-15, 15],
+        ylim=[-45, 5],
+    )
+    plot(
+        fig,
+        ax[1, 0],
+        f_filtered_gws * 1e-6,
+        fft_filtered_gws,
+        plot={"label": "Filtered Gaussian Weighted Sinusoid", "alpha": 0.7},
+        xlabel="Frequency [MHz]",
+        ylabel="Amplitude [dB]",
+        xlim=[-15, 15],
+        ylim=[-45, 5],
+    )
+
+    plot(
+        fig, ax[1, 1], f * 1e-6, fft_square, plot={"label": "Square Wave", "alpha": 0.7}
+    )
+    plot(
+        fig,
+        ax[1, 1],
+        f_filtered_square * 1e-6,
+        fft_filtered_square,
+        plot={"label": "Filtered Square Wave", "alpha": 0.7},
+        xlabel="Frequency [MHz]",
+        ylabel="Amplitude [dB]",
+        xlim=[-15, 15],
+        ylim=[-45, 5],
+    )
+
+    plt.savefig("filtered_transmit_pulse.png", dpi=300)
