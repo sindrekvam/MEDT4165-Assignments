@@ -21,16 +21,15 @@ grid_size_y = 40e-3  # [m] Grid size in z (NB: Width in k-Wave)
 ppw = 5  # Points per wavelength
 cfl = 0.3  # Related to the time resolution, lower is more accurate (no need to change)
 
-viz_t = grid_size_y / 2 / c0 * 0.75  # Visualization time [s]
+viz_t = grid_size_y / 2 / c0 * 0.8  # Visualization time [s]
 
 # SETUP SIMULATION GRID AND TIME STEPS
 dx = c0 / (ppw * source_f0)  # Grid resolution
 Nx = round(grid_size_x / dx)  # Number of grid points in x, NB: This is depth
 Ny = round(grid_size_y / dx)  # Number of grid points in y, NB: This is width (lateral)
 kgrid = kWaveGrid([Nx, Ny], [dx, dx])
-kgrid.makeTime(
-    c0, cfl
-)  # Make time array based on the Courant-Friedrichs-Lewy (CFL) condition
+# Make time array based on the Courant-Friedrichs-Lewy (CFL) condition
+kgrid.makeTime(c0, cfl)
 
 # SETUP SOURCE
 # Source signal, Gaussian pulse
@@ -39,10 +38,10 @@ source_sig = source_amp * tone_burst(1 / kgrid.dt, source_f0, source_cycles)
 # Define kWave source object
 source = kSource()
 source.p_mask = np.zeros_like(kgrid.x)
-source.p_mask[round(kgrid.Nx / 2), round(kgrid.Ny / 2)] = (
-    1  # Source position, centered in the grid
-)
-source.p = source_sig  # Source signal (pressure source)
+# Source position, centered in the grid
+source.p_mask[round(kgrid.Nx / 2), round(kgrid.Ny / 2)] = 1
+# Source signal (pressure source)
+source.p = source_sig
 
 # SETUP SENSOR
 sensor = kSensor(
@@ -51,9 +50,9 @@ sensor = kSensor(
 sensor.mask = np.ones_like(kgrid.x)  # Sensor mask, all grid points
 
 # SETUP MEDIUM
-medium = kWaveMedium(
-    sound_speed=c0, density=rho0
-)  # Define medium object, simple homogeneous medium
+medium = kWaveMedium(sound_speed=c0, density=rho0)
+medium.sound_speed = c0 * np.ones((Nx, Ny))
+medium.sound_speed[: Nx // 2, :] = c0 / 2
 
 # RUN SIMULATION
 simulation_options = SimulationOptions(
@@ -104,4 +103,3 @@ plt.xlabel("x [mm]")
 plt.ylabel("z [mm]")
 plt.title("A single point source")
 plt.show()
-
