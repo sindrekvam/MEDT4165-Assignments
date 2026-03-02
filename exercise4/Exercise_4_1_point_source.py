@@ -14,7 +14,7 @@ c0 = 1540  # [m/s] Speed of sound
 rho0 = 1000  # [kg/m^3] Density of water
 source_f0 = 1e6  # [Hz] Source frequency
 source_amp = 1e6  # [Pa] Source amplitude
-source_cycles = 5  # Number of cycles in the pulse
+source_cycles = 100  # Number of cycles in the pulse
 
 grid_size_x = 40e-3  # [m] Grid size in x (NB: Depth in k-Wave)
 grid_size_y = 40e-3  # [m] Grid size in z (NB: Width in k-Wave)
@@ -39,7 +39,11 @@ source_sig = source_amp * tone_burst(1 / kgrid.dt, source_f0, source_cycles)
 source = kSource()
 source.p_mask = np.zeros_like(kgrid.x)
 # Source position, centered in the grid
-source.p_mask[round(kgrid.Nx / 2), round(kgrid.Ny / 2)] = 1
+source.p_mask[kgrid.Nx // 2, kgrid.Ny // 2 + 2] = 1
+source.p_mask[kgrid.Nx // 2, kgrid.Ny // 2 + 1] = 1
+source.p_mask[kgrid.Nx // 2, kgrid.Ny // 2] = 1
+source.p_mask[kgrid.Nx // 2, kgrid.Ny // 2 - 1] = 1
+source.p_mask[kgrid.Nx // 2, kgrid.Ny // 2 - 2] = 1
 # Source signal (pressure source)
 source.p = source_sig
 
@@ -101,5 +105,5 @@ image = plt.imshow(p_plot[N_frame], cmap=cmap, vmin=-0.1, vmax=0.1, extent=exten
 plt.colorbar()
 plt.xlabel("x [mm]")
 plt.ylabel("z [mm]")
-plt.title("A single point source")
+plt.title("Five point sources")
 plt.show()
