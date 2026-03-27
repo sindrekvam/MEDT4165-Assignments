@@ -16,13 +16,14 @@ source_f0 = 1e6  # [Hz] Source frequency
 source_amp = 1e6  # [Pa] Source amplitude
 source_cycles = 2  # Number of cycles in the pulse
 
-aperture_size = 10e-3
+aperture_size = 20e-3
 aperture_index = 10
 grid_size_x = 100e-3  # [m] Grid size in x (NB: Depth in k-Wave)
 grid_size_y = 40e-3  # [m] Grid size in z (NB: Width in k-Wave)
-focal_depth = 70e-3  # [m] Focus depth
+focal_depth = 30e-3  # [m] Focus depth
+steer_angle = 5 * np.pi / 180  # rad
 ppw = 8  # Points per wavelength
-cfl = 0.3  # Related to the time resolution, lower is more accurate (no need to change)
+cfl = 0.1  # Related to the time resolution, lower is more accurate (no need to change)
 
 viz_t = grid_size_y / 2 / c0 * 1.2  # Visualization time [s]
 
@@ -38,7 +39,41 @@ kgrid.makeTime(
 
 # SETUP SOURCE
 # Source signal, Gaussian pulse
-signal_offset = np.arange(Na // 2)
+
+
+def get_delay_profile(
+    sources: np.ndarray, focal_depth: float, steer_angle: float, c: float = c0
+):
+    """
+    Calculate delay profile based on focal depth and steering angle
+    Equations are from page 37 in lecture 5
+    """
+
+    # Focusing
+    # 1/c * (r_c - r_i)
+    # r_c = distance from focal point to center element
+    # r_i = distance from focal point to element i
+    r_i = np.sqrt(sources**2 + focal_depth**2)
+    r_c = np.sqrt(sources[len(sources) // 2] ** 2 + focal_depth**2)
+
+    _delay_profile = (r_c - r_i) / c
+
+    # Steering
+    # 1/c * tan(phi) (x_i - x_end)
+    _delay_profile += np.tan(steer_angle) * sources / c
+
+    # Normalize
+    _delay_profile -= np.min(_delay_profile)
+
+    return _delay_profile
+
+
+aperture_range = range((Ny - Na) // 2, (Ny + Na) // 2)
+source_y = kgrid.y_vec[aperture_range]
+
+delay_profile = get_delay_profile(source_y, focal_depth, steer_angle)
+signal_offset = np.round(delay_profile / kgrid.dt).astype(int)
+
 source_sig = source_amp * tone_burst(
     1 / kgrid.dt,
     source_f0,
@@ -46,18 +81,26 @@ source_sig = source_amp * tone_burst(
     signal_offset=signal_offset,
 )
 plt.figure(tight_layout=True)
-plt.title("Source signals")
-for i, sig in enumerate(source_sig):
-    plt.plot(sig, label=f"signal {i}")
-plt.ylabel("Amplitude [Pa]")
-plt.xlabel("Sample")
+plt.title("Signal offset")
+plt.plot(
+    source_y * 1e3,
+    signal_offset * kgrid.dt * 1e6,
+    "x-",
+    label="Quantized delay profile",
+)
+plt.plot(source_y * 1e3, delay_profile * 1e6, label="True delay profile")
+plt.ylabel("Delay [us]")
+plt.xlabel("Width [mm]")
+plt.legend()
+plt.savefig(
+    f"delay_profile_F{np.round(focal_depth * 1e3).astype(int)}_{np.round(steer_angle * 180 / np.pi).astype(int)}.png"
+)
 
 # Define kWave source object
 source = kSource()
 source.p_mask = np.zeros_like(kgrid.x)
-# Start source points at the edge.
-# Approximate half of the aperture outside the grid
-for point in range(0, Na // 2):
+# Center the source points
+for point in aperture_range:
     source.p_mask[aperture_index, point] = 1
 source.p = source_sig  # Source signal (pressure source)
 
@@ -95,15 +138,60 @@ sensor_data = kspaceFirstOrder2D(
 p_field = np.reshape(
     sensor_data["p"], (kgrid.Nt, Nx, Ny), order="F"
 )  # Stored in Fortran ordering for some reason
-
-# VISUALIZATION
-plt.style.use("dark_background")
+p_max = np.reshape(sensor_data["p_max"], (Nx, Ny), order="F")
 
 # Create updated coordinate axis
-x_axis = (np.arange(Nx) * dx - aperture_index * dx) * 1e3
+x_axis = ((np.arange(Nx) - aperture_index) * dx) * 1e3
 y_axis = kgrid.y_vec * 1e3
 
-for alpha in [0.2, 0.5, 0.8, 1.2, 1.5, 1.8]:
+
+def plot_depth_profile(p_max, focal_depth: float = None):
+    center_beam = Ny // 2
+    center_profile = p_max[:, center_beam]
+    center_profile /= np.max(center_profile)
+
+    fig, ax = plt.subplots(constrained_layout=True)
+    ax.plot(x_axis, center_profile, label="center profile")
+
+    if focal_depth is not None:
+        ax.axvline(
+            focal_depth * 1e3,
+            color="red",
+            label="Focal depth",
+        )
+    plt.xlabel("x [mm]")
+    plt.ylabel("Amplitude")
+    plt.title("Depth profile")
+    plt.legend()
+    plt.savefig(
+        f"depth_profile_F{np.round(focal_depth * 1e3).astype(int)}_{np.round(steer_angle * 180 / np.pi).astype(int)}.png"
+    )
+
+
+def plot_beam_profile(p_max):
+    p_max_depth = np.max(p_max, axis=1, keepdims=True)
+
+    normalized_p_max = p_max / p_max_depth
+    normalized_p_max_db = 20 * np.log10(normalized_p_max)
+
+    fig, ax = plt.subplots(constrained_layout=True, figsize=(5, 8))
+    cmap = "twilight"
+    extent = [y_axis[0], y_axis[-1], x_axis[-1], x_axis[0]]
+    image = plt.imshow(normalized_p_max_db, cmap=cmap, extent=extent)
+    plt.colorbar()
+    plt.xlabel("x [mm]")
+    plt.ylabel("z [mm]")
+    plt.title(f"Beam profile, $F={focal_depth * 1e3} mm$")
+    plt.savefig(
+        f"beam_profile_F{np.round(focal_depth * 1e3).astype(int)}_{np.round(steer_angle * 180 / np.pi).astype(int)}.png"
+    )
+
+
+plot_beam_profile(p_max)
+plot_depth_profile(p_max, focal_depth=focal_depth)
+
+
+for alpha in [0.2, focal_depth * 2 / grid_size_x, 0.5, 0.8, 1.2, 1.5, 1.8]:
     viz_t = grid_size_x / 2 / c0 * alpha  # Visualization time [s]
     # Get frame number to plot
     N_frame = np.round(np.where(kgrid.t_array[0] > viz_t)[0][0]).astype(
@@ -124,5 +212,9 @@ for alpha in [0.2, 0.5, 0.8, 1.2, 1.5, 1.8]:
     plt.xlabel("x [mm]")
     plt.ylabel("z [mm]")
     plt.title(f"{Na} point sources")
+    plt.savefig(
+        f"propagation_T{alpha}_F{np.round(focal_depth * 1e3).astype(int)}_{np.round(steer_angle * 180 / np.pi).astype(int)}.png"
+    )
+
 
 plt.show()
