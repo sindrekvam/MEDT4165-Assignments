@@ -8,26 +8,29 @@ from kwave.kspaceFirstOrder2D import kspaceFirstOrder2D
 from kwave.kWaveSimulation import SimulationOptions
 from kwave.options.simulation_execution_options import SimulationExecutionOptions
 from kwave.utils.signals import tone_burst
+from scipy.signal.windows import hamming, triang
 
 # SIMULATION SETUP
+# %%
 c0 = 1540  # [m/s] Speed of sound
 rho0 = 1000  # [kg/m^3] Density of water
 source_f0 = 1e6  # [Hz] Source frequency
 source_amp = 1e6  # [Pa] Source amplitude
-source_cycles = 2  # Number of cycles in the pulse
+source_cycles = 80  # Number of cycles in the pulse
 
 aperture_size = 20e-3
 aperture_index = 10
 grid_size_x = 100e-3  # [m] Grid size in x (NB: Depth in k-Wave)
 grid_size_y = 40e-3  # [m] Grid size in z (NB: Width in k-Wave)
 focal_depth = 30e-3  # [m] Focus depth
-steer_angle = 5 * np.pi / 180  # rad
+steer_angle = 0 * np.pi / 180  # rad
 ppw = 8  # Points per wavelength
 cfl = 0.1  # Related to the time resolution, lower is more accurate (no need to change)
 
 viz_t = grid_size_y / 2 / c0 * 1.2  # Visualization time [s]
 
 # SETUP SIMULATION GRID AND TIME STEPS
+# %%
 dx = c0 / (ppw * source_f0)  # Grid resolution
 Nx = round(grid_size_x / dx)  # Number of grid points in x, NB: This is depth
 Ny = round(grid_size_y / dx)  # Number of grid points in y, NB: This is width (lateral)
@@ -68,11 +71,25 @@ def get_delay_profile(
     return _delay_profile
 
 
+# %%
 aperture_range = range((Ny - Na) // 2, (Ny + Na) // 2)
 source_y = kgrid.y_vec[aperture_range]
 
 delay_profile = get_delay_profile(source_y, focal_depth, steer_angle)
 signal_offset = np.round(delay_profile / kgrid.dt).astype(int)
+
+
+def add_triangle_apodization(source_amp: float, signal_offsets: list[float]):
+    return source_amp * np.expand_dims(triang(len(signal_offsets)), 1)
+
+
+def add_hamming_apodization(source_amp: float, signal_offsets: list[float]):
+    return source_amp * np.expand_dims(hamming(len(signal_offsets)), 1)
+
+
+# Task 5.2
+# source_amp = add_triangle_apodization(source_amp, signal_offset)
+# source_amp = add_hamming_apodization(source_amp, signal_offset)
 
 source_sig = source_amp * tone_burst(
     1 / kgrid.dt,
@@ -96,6 +113,7 @@ plt.savefig(
     f"delay_profile_F{np.round(focal_depth * 1e3).astype(int)}_{np.round(steer_angle * 180 / np.pi).astype(int)}.png"
 )
 
+# %%
 # Define kWave source object
 source = kSource()
 source.p_mask = np.zeros_like(kgrid.x)
@@ -134,6 +152,7 @@ sensor_data = kspaceFirstOrder2D(
     execution_options=execution_options,
 )
 
+# %%
 # Extract pressure field from
 p_field = np.reshape(
     sensor_data["p"], (kgrid.Nt, Nx, Ny), order="F"
@@ -187,10 +206,70 @@ def plot_beam_profile(p_max):
     )
 
 
+def plot_lateral_beam_profile(
+    p_max, distance_index: int, distance_to_maximum_pressure: float
+):
+    lateral_profile = p_max[distance_index, :]
+
+    lateral_profile_db = 20 * np.log10(lateral_profile)
+    lateral_profile_db -= np.max(lateral_profile_db)
+
+    theoretical_lateral_profile = np.sinc(
+        aperture_size
+        * y_axis
+        * 1e-3
+        / ((c0 / source_f0) * distance_to_maximum_pressure)
+    )
+    # theoretical_lateral_profile /= np.max(theoretical_lateral_profile)
+    theoretical_lateral_profile_db = 20 * np.log10(np.abs(theoretical_lateral_profile))
+    theoretical_lateral_profile_db -= np.max(theoretical_lateral_profile_db)
+
+    theoretical_lateral_profile_sinc2 = np.pow(
+        np.sinc(
+            0.5
+            * aperture_size
+            * y_axis
+            * 1e-3
+            / ((c0 / source_f0) * distance_to_maximum_pressure)
+        ),
+        2,
+    )
+    # theoretical_lateral_profile /= np.max(theoretical_lateral_profile)
+    theoretical_lateral_profile_sinc2_db = 20 * np.log10(
+        np.abs(theoretical_lateral_profile_sinc2)
+    )
+    theoretical_lateral_profile_sinc2_db -= np.max(theoretical_lateral_profile_sinc2_db)
+
+    fig, ax = plt.subplots(constrained_layout=True)
+    ax.plot(y_axis, lateral_profile_db, label="lateral beam profile")
+    ax.plot(
+        y_axis, theoretical_lateral_profile_db, label="theoretical lateral beam profile"
+    )
+    ax.plot(
+        y_axis,
+        theoretical_lateral_profile_sinc2_db,
+        label="theoretical lateral beam profile, sinc²",
+    )
+    ax.set_ylim([-50, 5])
+    plt.xlabel("y [mm]")
+    plt.ylabel("Amplitude [dB]")
+    plt.title(f"Lateral beam profile $z={distance_to_maximum_pressure * 1e3:.2f}$ mm")
+    plt.legend()
+    plt.savefig(
+        f"lateral_beam_profile_F{np.round(focal_depth * 1e3).astype(int)}_{np.round(steer_angle * 180 / np.pi).astype(int)}.png"
+    )
+
+
 plot_beam_profile(p_max)
 plot_depth_profile(p_max, focal_depth=focal_depth)
+plot_lateral_beam_profile(
+    p_max,
+    distance_index=np.where(x_axis >= focal_depth * 1e3)[0][0],
+    distance_to_maximum_pressure=focal_depth,
+)
 
 
+# %%
 for alpha in [0.2, focal_depth * 2 / grid_size_x, 0.5, 0.8, 1.2, 1.5, 1.8]:
     viz_t = grid_size_x / 2 / c0 * alpha  # Visualization time [s]
     # Get frame number to plot
