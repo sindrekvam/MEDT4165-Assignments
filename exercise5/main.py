@@ -16,16 +16,17 @@ c0 = 1540  # [m/s] Speed of sound
 rho0 = 1000  # [kg/m^3] Density of water
 source_f0 = 1e6  # [Hz] Source frequency
 source_amp = 1e6  # [Pa] Source amplitude
-source_cycles = 80  # Number of cycles in the pulse
+source_cycles = 2  # Number of cycles in the pulse
 
 aperture_size = 20e-3
 aperture_index = 10
 grid_size_x = 100e-3  # [m] Grid size in x (NB: Depth in k-Wave)
 grid_size_y = 40e-3  # [m] Grid size in z (NB: Width in k-Wave)
 focal_depth = 30e-3  # [m] Focus depth
+focal_depth_rx = 30e-3  # [m] Focus depth
 steer_angle = 0 * np.pi / 180  # rad
 ppw = 8  # Points per wavelength
-cfl = 0.1  # Related to the time resolution, lower is more accurate (no need to change)
+cfl = 0.3  # Related to the time resolution, lower is more accurate (no need to change)
 
 viz_t = grid_size_y / 2 / c0 * 1.2  # Visualization time [s]
 
@@ -37,8 +38,13 @@ Ny = round(grid_size_y / dx)  # Number of grid points in y, NB: This is width (l
 Na = round(Ny * aperture_size // grid_size_y)  # Number of grid points in the aperture
 kgrid = kWaveGrid([Nx, Ny], [dx, dx])
 kgrid.makeTime(
-    c0, cfl
+    c0, cfl, t_end=2 * grid_size_x / c0
 )  # Make time array based on the Courant-Friedrichs-Lewy (CFL) condition
+
+
+# Create updated coordinate axis
+x_axis = ((np.arange(Nx) - aperture_index) * dx) * 1e3
+y_axis = kgrid.y_vec * 1e3
 
 # SETUP SOURCE
 # Source signal, Gaussian pulse
@@ -130,9 +136,16 @@ sensor.mask = np.ones_like(kgrid.x)  # Sensor mask, all grid points
 
 # SETUP MEDIUM
 medium = kWaveMedium(
-    sound_speed=c0, density=rho0
+    sound_speed=np.ones_like(kgrid.x) * c0,
+    density=np.ones_like(kgrid.x) * rho0,
 )  # Define medium object, simple homogeneous medium
 
+# Add some scatter points with a larger density
+r = np.array([10, 30, 40, 50, 70], dtype=int) * 1e-3  # [m]
+r_index = np.array([np.where(x_axis >= r_i * 1e3)[0][0] for r_i in r])
+medium.density[r_index, Ny // 2] = 4000
+
+# %%
 # RUN SIMULATION
 simulation_options = SimulationOptions(
     pml_auto=True,
@@ -158,10 +171,6 @@ p_field = np.reshape(
     sensor_data["p"], (kgrid.Nt, Nx, Ny), order="F"
 )  # Stored in Fortran ordering for some reason
 p_max = np.reshape(sensor_data["p_max"], (Nx, Ny), order="F")
-
-# Create updated coordinate axis
-x_axis = ((np.arange(Nx) - aperture_index) * dx) * 1e3
-y_axis = kgrid.y_vec * 1e3
 
 
 def plot_depth_profile(p_max, focal_depth: float = None):
